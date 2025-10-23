@@ -6,10 +6,17 @@ import { storage } from "./storage";
 import { sendMessage } from "./ai";
 import { insertChatSessionSchema, insertMessageSchema } from "@shared/schema";
 
+
 const upload = multer({ 
   dest: 'uploads/',
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
+
+declare module "express-session" {
+  interface SessionData {
+    sessionId: string; 
+  }
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
@@ -18,8 +25,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all sessions
   app.get("/api/sessions", async (req, res) => {
     try {
-      const sessions = await storage.getSessions();
-      res.json(sessions);
+      if (req.session.sessionId) {
+        const session = await storage.getSession(req.session.sessionId);
+        if (session) {
+          return res.json([session]);
+        }
+      }
+      res.json([]);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -41,8 +53,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create new session
   app.post("/api/sessions", async (req, res) => {
     try {
+      let currentSessionId = req.session.sessionId;
+      let session;
+
+      if (currentSessionId) {
+        session = await storage.getSession(currentSessionId);
+        if (session) {
+          return res.status(200).json(session); // Session already exists
+        }
+      }
+
+      // If no session or session not found, create a new one
       const validated = insertChatSessionSchema.parse(req.body);
-      const session = await storage.createSession(validated);
+      session = await storage.createSession(validated);
+      req.session.sessionId = session.id; // Store new session ID
       res.status(201).json(session);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
